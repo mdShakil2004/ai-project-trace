@@ -1,9 +1,8 @@
 
 
-````
 # Trace
 
-### AI Change Intelligence for Software Engineers
+### AI Change Intelligence for Software 
 
 **Understand the change. Verify the reasoning. Ship with confidence.**
 
