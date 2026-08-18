@@ -1,10 +1,6 @@
-Absolutely. Below is a **complete, professional `README.md`** written for the Trace repository. It is structured like a serious production engineering project rather than an assignment-style README.
 
-It reflects the actual implementation: GitHub OAuth, email/password authentication, PR analysis, AI analysis through OpenRouter, semantic retrieval, realtime analysis progress, PostgreSQL persistence, per-user data isolation, API-key management, notifications, and the React/TanStack frontend.
 
-You can replace the entire root `README.md` with this:
-
-````md
+````
 # Trace
 
 ### AI Change Intelligence for Software Engineers
