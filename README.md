@@ -69,6 +69,19 @@ Identify tests, checks, or verification steps that are missing, failed, or insuf
 
 ---
 
+
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/39e5f574-e689-4d89-89d0-b1a30a2fff30" />
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/bd668538-c522-447c-a4d2-1b14c66bd01c" />
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/adf73ac1-91cb-4dcb-9da4-9bb4f77666fb" />
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/1c3f81a2-eead-4e8f-8617-499b1184014d" />
+
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/2051bb93-5c4f-4032-9829-6c2f6379d339" />
+
+
+
+
+
+
 # Core Workflow
 
 ```text
