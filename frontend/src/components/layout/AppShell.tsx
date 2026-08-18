@@ -15,6 +15,12 @@ const NAV = [
   { to: '/repositories', label: 'Repositories', icon: FolderGit2 },
 ];
 
+const currentUserQuery = {
+  queryKey: ['current-user'],
+  queryFn: api.getCurrentUser,
+  staleTime: 5 * 60_000,
+};
+
 function TraceMark() {
   return (
     <Link to="/" className="flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-ring">
@@ -31,23 +37,24 @@ function TraceMark() {
 
 function initials(user: AuthUser | undefined) {
   const value = user?.name?.trim() || user?.login?.trim() || user?.email?.trim();
-  if (!value) return "?";
+  if (!value) return '?';
   return value
     .split(/\s+/)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
 function displayName(user: AuthUser | undefined) {
-  return user?.name || user?.login || user?.email || "Trace user";
+  return user?.name || user?.login || user?.email || 'Trace user';
 }
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { data: repositories = [] } = useQuery({ queryKey: ['repositories'], queryFn: api.listRepositories, staleTime: 30_000 });
   const { data: github } = useQuery({ queryKey: ['github-connection'], queryFn: api.getGitHubConnection, staleTime: 30_000 });
-  const { data: user } = useQuery({ queryKey: ['current-user'], queryFn: async () => (await api.getCurrentUser()).user, staleTime: 5 * 60_000 });
+  const { data: currentUser } = useQuery(currentUserQuery);
+  const user = currentUser?.user;
 
   return (
     <nav className="flex h-full flex-col gap-1 p-3" aria-label="Primary">
@@ -74,6 +81,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
 function TopBar({ onSearch }: { onSearch: () => void }) {
   const { data: repositories = [] } = useQuery({ queryKey: ['repositories'], queryFn: api.listRepositories, staleTime: 30_000 });
+  const { data: currentUser } = useQuery(currentUserQuery);
+  const user = currentUser?.user;
   const queryClient = useQueryClient();
   const { data: notifications = [], isLoading: notificationsLoading } = useQuery({ queryKey: ['notifications'], queryFn: api.listNotifications, staleTime: 15_000, refetchInterval: 30_000 });
   const { data: github } = useQuery({ queryKey: ['github-connection'], queryFn: api.getGitHubConnection, staleTime: 30_000 });
