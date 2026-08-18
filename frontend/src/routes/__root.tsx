@@ -3,16 +3,16 @@ import {
   Outlet,
   Link,
   createRootRouteWithContext,
+  redirect,
   useRouter,
-  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { api } from "../services/api";
+import { api, TraceApiError } from "../services/api";
 
 function NotFoundComponent() {
   return (
@@ -45,63 +45,27 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-function AuthGate({ children }: { children: ReactNode }) {
-  const [checking, setChecking] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-
-  const path = useRouterState({
-    select: (state) => state.location.pathname,
-  });
-
-  useEffect(() => {
-    if (path === "/login") {
-      setChecking(false);
-      setAuthenticated(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    setChecking(true);
-
-    api
-      .getCurrentUser()
-      .then(() => {
-        if (!cancelled) {
-          setAuthenticated(true);
-          setChecking(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAuthenticated(false);
-          setChecking(false);
-
-          if (typeof window !== "undefined") {
-            window.location.replace("/login");
-          }
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
-
-  if (path === "/login") {
-    return <>{children}</>;
-  }
-
-  if (checking || !authenticated) {
-    return (
-      <div className="min-h-screen bg-background" />
-    );
-  }
-
-  return <>{children}</>;
-}
+const currentUserQuery = {
+  queryKey: ["current-user"],
+  queryFn: () => api.getCurrentUser(),
+};
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  beforeLoad: async ({ location, context }) => {
+    // Route loaders run before React components mount. The old AuthGate
+    // checked auth only after child loaders had already executed, so a
+    // logged-out user could hit protected loaders and throw a root error.
+    if (location.pathname === "/login") return;
+
+    try {
+      await context.queryClient.ensureQueryData(currentUserQuery);
+    } catch (error) {
+      if (error instanceof TraceApiError && error.status === 401) {
+        throw redirect({ to: "/login" });
+      }
+      throw error;
+    }
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -129,5 +93,5 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  return <QueryClientProvider client={queryClient}><AuthGate><Outlet /></AuthGate></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><Outlet /></QueryClientProvider>;
 }
