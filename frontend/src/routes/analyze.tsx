@@ -1,51 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, Check, Github, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Github, Loader2, Search, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/trace/Primitives";
-import { api, TraceApiError } from "@/services/api";
+import { api, TraceApiError, type GitHubPullRequest, type GitHubRepository } from "@/services/api";
 import type { AnalysisEvent } from "@/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/analyze")({
-  head: () => ({
-    meta: [
-      { title: "Analyze a pull request — Trace" },
-      {
-        name: "description",
-        content:
-          "Give Trace a GitHub pull request and Trace reconstructs the change, intent, impact and verification gaps.",
-      },
-      { property: "og:title", content: "Analyze a pull request — Trace" },
-    ],
-  }),
+  head: () => ({ meta: [{ title: "Analyze a pull request — Trace" }, { name: "description", content: "Select a connected GitHub repository and pull request for Trace to analyze." }] }),
   component: AnalyzePage,
 });
 
 type Phase = "idle" | "running" | "error";
-
-function isGitHubPullRequestUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== "github.com") return false;
-    const parts = url.pathname.split("/").filter(Boolean);
-    return parts.length === 4 && parts[2] === "pull" && /^\d+$/.test(parts[3]);
-  } catch {
-    return false;
-  }
-}
-
-function upsertEvent(events: AnalysisEvent[], next: AnalysisEvent) {
-  const index = events.findIndex((event) => event.id === next.id);
-  if (index === -1) return [...events, next];
-  const copy = events.slice();
-  copy[index] = { ...copy[index], ...next };
-  return copy;
-}
+function upsertEvent(events: AnalysisEvent[], next: AnalysisEvent) { const index = events.findIndex((event) => event.id === next.id); if (index === -1) return [...events, next]; const copy = events.slice(); copy[index] = { ...copy[index], ...next }; return copy; }
 
 function AnalyzePage() {
   const navigate = useNavigate();
-  const [url, setUrl] = useState("");
+  const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
+  const [repositoryQuery, setRepositoryQuery] = useState("");
+  const [selectedRepository, setSelectedRepository] = useState<GitHubRepository | null>(null);
+  const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
+  const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
+  const [loadingRepositories, setLoadingRepositories] = useState(true);
+  const [loadingPullRequests, setLoadingPullRequests] = useState(false);
+  const [browserError, setBrowserError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [events, setEvents] = useState<AnalysisEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -54,257 +33,31 @@ function AnalyzePage() {
   const [started, setStarted] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
-  useEffect(() => {
-    if (phase !== "running" || !investigationId) return;
+  useEffect(() => { let cancelled = false; setLoadingRepositories(true); api.listGitHubRepositories().then((items) => { if (!cancelled) setRepositories(items); }).catch((err) => { if (!cancelled) setBrowserError(err instanceof Error ? err.message : "Unable to load GitHub repositories."); }).finally(() => { if (!cancelled) setLoadingRepositories(false); }); return () => { cancelled = true; }; }, []);
 
-    let cancelled = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-    let unsubscribe: (() => void) | undefined;
-    let usingFallback = false;
+  useEffect(() => { if (!selectedRepository) { setPullRequests([]); setSelectedPullRequest(null); return; } const [owner, repo] = selectedRepository.fullName.split("/"); let cancelled = false; setLoadingPullRequests(true); setBrowserError(null); setSelectedPullRequest(null); api.listGitHubPullRequests(owner, repo).then((items) => { if (!cancelled) setPullRequests(items); }).catch((err) => { if (!cancelled) setBrowserError(err instanceof Error ? err.message : "Unable to load pull requests."); }).finally(() => { if (!cancelled) setLoadingPullRequests(false); }); return () => { cancelled = true; }; }, [selectedRepository]);
 
-    const finish = async () => {
-      try {
-        await navigate({ to: "/investigation/$id", params: { id: investigationId } });
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to open investigation");
-          setPhase("error");
-        }
-      }
-    };
+  useEffect(() => { if (phase !== "running" || !investigationId) return; let cancelled = false; let fallbackTimer: ReturnType<typeof setTimeout> | undefined; let unsubscribe: (() => void) | undefined; let usingFallback = false; const finish = async () => { try { await navigate({ to: "/investigation/$id", params: { id: investigationId } }); } catch (err) { if (!cancelled) { setError(err instanceof Error ? err.message : "Unable to open investigation"); setPhase("error"); } } }; const poll = async () => { try { const next = await api.getEvents(investigationId); if (!cancelled) setEvents(next); try { await api.getInvestigation(investigationId); if (!cancelled) await finish(); } catch (err) { if (err instanceof TraceApiError && err.code === "ANALYSIS_IN_PROGRESS") { if (!cancelled) fallbackTimer = setTimeout(poll, 1500); return; } if (!cancelled) { setError(err instanceof Error ? err.message : "Analysis failed."); setPhase("error"); } } } catch (err) { if (!cancelled) { setError(err instanceof Error ? err.message : "Unable to read analysis progress."); setPhase("error"); } } }; if (!realtimeToken) { usingFallback = true; void poll(); } else unsubscribe = api.subscribeInvestigation(investigationId, realtimeToken, { onEvents: (next) => { if (!cancelled) setEvents(next); }, onStage: (stage) => { if (!cancelled) setEvents((current) => upsertEvent(current, stage)); }, onComplete: () => { void finish(); }, onError: () => { if (!usingFallback && !cancelled) { usingFallback = true; void poll(); } } }); return () => { cancelled = true; unsubscribe?.(); if (fallbackTimer) clearTimeout(fallbackTimer); }; }, [phase, investigationId, realtimeToken, navigate]);
+  useEffect(() => { if (!started) { setElapsed(0); return; } const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000); return () => clearInterval(timer); }, [started]);
 
-    const schedulePoll = () => {
-      if (!cancelled) fallbackTimer = setTimeout(poll, 1500);
-    };
-
-    const poll = async () => {
-      try {
-        const next = await api.getEvents(investigationId);
-        if (!cancelled) setEvents(next);
-
-        try {
-          await api.getInvestigation(investigationId);
-          if (!cancelled) await finish();
-        } catch (err) {
-          if (err instanceof TraceApiError && err.code === "ANALYSIS_IN_PROGRESS") {
-            schedulePoll();
-            return;
-          }
-          if (!cancelled) {
-            setError(err instanceof Error ? err.message : "Analysis failed.");
-            setPhase("error");
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to read analysis progress.");
-          setPhase("error");
-        }
-      }
-    };
-
-    const startRealtime = () => {
-      if (!realtimeToken) {
-        usingFallback = true;
-        void poll();
-        return;
-      }
-
-      unsubscribe = api.subscribeInvestigation(investigationId, realtimeToken, {
-        onEvents: (next) => {
-          if (!cancelled) setEvents(next);
-        },
-        onStage: (stage) => {
-          if (!cancelled) setEvents((current) => upsertEvent(current, stage));
-        },
-        onComplete: () => {
-          void finish();
-        },
-        onError: (message) => {
-          if (!usingFallback && !cancelled) {
-            usingFallback = true;
-            void poll();
-          }
-          if (message === "Received an invalid realtime event." && !cancelled) {
-            setError(message);
-          }
-        },
-      });
-    };
-
-    startRealtime();
-
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-    };
-  }, [phase, investigationId, realtimeToken, navigate]);
-
-  useEffect(() => {
-    if (!started) {
-      setElapsed(0);
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - started) / 1000));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [started]);
-
-  const start = async () => {
-    const value = url.trim();
-    setError(null);
-    setEvents([]);
-
-    if (!value) {
-      setPhase("error");
-      setError("Enter a GitHub pull request URL.");
-      return;
-    }
-
-    if (!isGitHubPullRequestUrl(value)) {
-      setPhase("error");
-      setError("Enter a valid GitHub pull request URL, for example https://github.com/owner/repo/pull/123.");
-      return;
-    }
-
-    try {
-      const result = await api.analyzePullRequest(value);
-      setInvestigationId(result.investigationId);
-      setRealtimeToken(result.realtimeToken ?? null);
-      setStarted(Date.now());
-      setPhase("running");
-    } catch (err) {
-      setPhase("error");
-      setError(err instanceof Error ? err.message : "Analysis failed.");
-    }
-  };
-
+  const filteredRepositories = useMemo(() => { const q = repositoryQuery.trim().toLowerCase(); if (!q) return repositories; return repositories.filter((repo) => `${repo.fullName} ${repo.description || ""} ${repo.language}`.toLowerCase().includes(q)); }, [repositories, repositoryQuery]);
+  const start = async () => { if (!selectedPullRequest) { setPhase("error"); setError("Select a pull request to analyze."); return; } setError(null); setEvents([]); try { const result = await api.analyzePullRequest(selectedPullRequest.url); setInvestigationId(result.investigationId); setRealtimeToken(result.realtimeToken ?? null); setStarted(Date.now()); setPhase("running"); } catch (err) { setPhase("error"); setError(err instanceof Error ? err.message : "Analysis failed."); } };
   const completedStages = events.filter((event) => event.status === "done").length;
 
-  return (
-    <AppShell>
-      <PageHeader
-        title="Analyze a Pull Request"
-        subtitle="Give Trace a GitHub PR and we'll reconstruct the change, its intent, impact, and verification gaps."
-      />
-      <div className="mx-auto max-w-3xl space-y-6 px-4 py-8 md:px-6">
-        {phase !== "running" && (
-          <section className="panel p-5">
-            <label htmlFor="pr-url" className="text-xs font-medium">
-              GitHub Pull Request URL
-            </label>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <input
-                id="pr-url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void start()}
-                placeholder="https://github.com/owner/repo/pull/123"
-                className="mono min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs outline-none focus:border-border-strong"
-              />
-              <button
-                type="button"
-                disabled={!url.trim()}
-                onClick={() => void start()}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                <Sparkles className="size-4" />
-                Analyze PR
-              </button>
-            </div>
-            <p className="mt-3 text-[11px] text-muted-foreground">
-              Public GitHub PRs can be analyzed directly. Trace uses read-only GitHub access and does not write anything back to the repository. Connect GitHub only when you need private repository access or a higher API rate limit.
-            </p>
-          </section>
-        )}
-
-        {phase === "error" && (
-          <section className="panel border-risk-high/30 p-5">
-            <h2 className="flex items-center gap-2 text-sm font-medium text-risk-high">
-              <AlertTriangle className="size-4" />
-              We couldn't analyze this pull request.
-            </h2>
-            <p className="mt-2 text-xs text-muted-foreground">{error}</p>
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => void start()}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
-              >
-                Try again
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhase("idle")}
-                className="rounded-md border border-border px-3 py-1.5 text-xs"
-              >
-                Edit URL
-              </button>
-            </div>
-          </section>
-        )}
-
-        {phase === "running" && (
-          <section className="panel p-5">
-            <header className="flex items-center justify-between border-b border-border pb-3">
-              <div>
-                <h2 className="mono text-sm">Analyzing pull request</h2>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {completedStages > 0 ? `${completedStages} stage${completedStages === 1 ? "" : "s"} complete` : "Waiting for analysis events"}
-                </p>
-              </div>
-              <span className="mono text-xs text-muted-foreground">{elapsed}s</span>
-            </header>
-
-            {events.length === 0 ? (
-              <p className="mt-4 text-xs text-muted-foreground">
-                Trace has started the investigation. Waiting for the first backend progress event…
-              </p>
-            ) : (
-              <ol className="mt-4 space-y-3">
-                {events.map((item) => {
-                  const state = item.status;
-                  return (
-                    <li key={item.id} className="flex items-start gap-3">
-                      <span className="mt-0.5">
-                        {state === "done" && <Check className="size-4 text-risk-low" />}
-                        {state === "active" && <Loader2 className="size-4 animate-spin text-intel" />}
-                        {state === "pending" && <span className="block size-3.5 rounded-full border border-border-strong" />}
-                      </span>
-                      <span className={cn("min-w-0 text-sm", state === "pending" && "text-muted-foreground")}>
-                        {item.label}
-                        {item.detail && state !== "pending" && (
-                          <span className="mono block text-[11px] text-muted-foreground">{item.detail}</span>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
-        )}
-
-        {phase !== "running" && (
-          <section className="panel border-risk-medium/30 p-5">
-            <h2 className="flex items-center gap-2 text-sm font-medium text-risk-medium">
-              <AlertTriangle className="size-4" />
-              <span>How Trace analyzes a PR</span>
-            </h2>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Trace fetches the pull request, changed files, history, discussion and checks, then uses the configured OpenRouter model to produce evidence-linked change intelligence. Public repositories are supported without connecting GitHub.
-            </p>
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <Github className="size-3.5" />
-              Read-only GitHub access
-            </div>
-          </section>
-        )}
-      </div>
-    </AppShell>
-  );
+  return <AppShell>
+    <PageHeader title="Analyze a Pull Request" subtitle="Choose a connected GitHub repository, select a pull request, and let Trace reconstruct the change, intent, impact, and verification gaps." />
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 md:px-6">
+      {phase !== "running" && <>
+        <section className="panel p-5">
+          <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-medium">Your GitHub repositories</h2><p className="mt-1 text-[11px] text-muted-foreground">All repositories available to the connected GitHub account.</p></div><Github className="size-4 text-muted-foreground" /></div>
+          <div className="relative mt-4"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input value={repositoryQuery} onChange={(e) => setRepositoryQuery(e.target.value)} placeholder="Search repositories…" className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-xs outline-none focus:border-border-strong" /></div>
+          <div className="mt-3 max-h-72 overflow-auto rounded-md border border-border">{loadingRepositories ? <div className="flex items-center gap-2 p-5 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading repositories…</div> : filteredRepositories.length === 0 ? <div className="p-5 text-xs text-muted-foreground">{repositories.length ? "No repositories match your search." : "No repositories are available for this GitHub account."}</div> : filteredRepositories.map((repo) => <button key={repo.id} type="button" onClick={() => setSelectedRepository(repo)} className={cn("flex w-full items-center justify-between border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted/30", selectedRepository?.id === repo.id && "bg-muted/40")}><span className="min-w-0"><span className="block truncate text-sm font-medium">{repo.fullName}</span><span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{repo.language}{repo.private ? " · Private" : " · Public"}</span></span><ChevronRight className="size-4 shrink-0 text-muted-foreground" /></button>)}</div>
+        </section>
+        {selectedRepository && <section className="panel p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-medium">Pull requests in {selectedRepository.name}</h2><p className="mt-1 text-[11px] text-muted-foreground">Select an existing pull request. You do not need to create one.</p></div><span className="mono text-[11px] text-muted-foreground">{pullRequests.length} open</span></div>{loadingPullRequests ? <div className="mt-4 flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading pull requests…</div> : pullRequests.length === 0 ? <div className="mt-4 rounded-md border border-border p-4 text-xs text-muted-foreground">This repository has no open pull requests.</div> : <div className="mt-4 space-y-2">{pullRequests.map((pr) => <button key={pr.number} type="button" onClick={() => { setSelectedPullRequest(pr); setPhase("idle"); setError(null); }} className={cn("w-full rounded-md border border-border p-3 text-left hover:bg-muted/30", selectedPullRequest?.number === pr.number && "border-intel/50 bg-intel/5")}><div className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="block text-sm font-medium">#{pr.number} {pr.title}</span><span className="mt-1 block text-[11px] text-muted-foreground">{pr.author} · {pr.additions} additions · {pr.deletions} deletions · {pr.changedFiles} files</span></span><span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{pr.draft ? "Draft" : "Open"}</span></div></button>)}</div>}{selectedPullRequest && <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/10 p-3"><div className="min-w-0"><p className="text-xs font-medium">Selected: #{selectedPullRequest.number} {selectedPullRequest.title}</p><p className="mt-1 text-[11px] text-muted-foreground">Trace will read the PR and repository context in read-only mode.</p></div><button type="button" onClick={() => void start()} className="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Sparkles className="size-4" />Analyze PR</button></div>}</section>}
+        {browserError && <section className="panel border-risk-high/30 p-4 text-xs text-risk-high"><div className="flex items-center gap-2"><AlertTriangle className="size-4" />{browserError}</div></section>}
+      </>}
+      {phase === "error" && <section className="panel border-risk-high/30 p-5"><h2 className="flex items-center gap-2 text-sm font-medium text-risk-high"><AlertTriangle className="size-4" />We couldn't analyze this pull request.</h2><p className="mt-2 text-xs text-muted-foreground">{error}</p><button type="button" onClick={() => { setPhase("idle"); setError(null); }} className="mt-4 rounded-md border border-border px-3 py-1.5 text-xs">Back to selection</button></section>}
+      {phase === "running" && <section className="panel p-5"><header className="flex items-center justify-between border-b border-border pb-3"><div><h2 className="mono text-sm">Analyzing pull request</h2><p className="mt-1 text-[11px] text-muted-foreground">{completedStages > 0 ? `${completedStages} stages complete` : "Waiting for analysis events"}</p></div><span className="mono text-xs text-muted-foreground">{elapsed}s</span></header>{events.length === 0 ? <p className="mt-4 text-xs text-muted-foreground">Trace has started the investigation. Waiting for the first backend progress event…</p> : <ol className="mt-4 space-y-3">{events.map((item) => <li key={item.id} className="flex items-start gap-3"><span className="mt-0.5">{item.status === "done" && <Check className="size-4 text-risk-low" />}{item.status === "active" && <Loader2 className="size-4 animate-spin text-intel" />}{item.status === "pending" && <span className="block size-3.5 rounded-full border border-border-strong" />}</span><span className={cn("min-w-0 text-sm", item.status === "pending" && "text-muted-foreground")}>{item.label}{item.detail && item.status !== "pending" && <span className="mono block text-[11px] text-muted-foreground">{item.detail}</span>}</span></li>)}</ol>}</section>}
+    </div>
+  </AppShell>;
 }
