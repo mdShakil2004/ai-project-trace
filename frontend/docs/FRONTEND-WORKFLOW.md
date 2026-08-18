@@ -4,9 +4,9 @@ This document is the backend-facing source of truth for the existing Trace front
 
 ## Product interaction model
 
-Trace is an evidence-backed PR investigation product. The frontend does not want a generic chat response or one giant AI blob. It expects a structured investigation that can be explored section-by-section and traced back to evidence.
+Trace is an evidence-backed PR investigation product. The frontend expects a structured investigation that can be explored section-by-section and traced back to evidence.
 
-Core equation shown by the UI:
+Core equation:
 
 `Observed + Inferred + Evidence + Unknowns + Verification = Engineering decision`
 
@@ -24,92 +24,22 @@ Every important conclusion is rendered as:
 - `/repositories/$id` — repository intelligence/history
 - `/settings` — GitHub connection and analysis preferences
 
-The sidebar labels are Overview, Investigate PR, Investigations and Repositories. Settings is a secondary workspace action.
-
 ## Primary end-to-end workflow
 
 1. User lands on Overview.
-2. Overview loads metrics and recent investigations.
+2. Overview loads metrics and recent investigations from the API.
 3. User selects `Analyze a Pull Request`.
-4. Analyze screen accepts a GitHub PR URL. Demo/default URL is `https://github.com/acme/payments-api/pull/482`.
+4. Analyze screen accepts a GitHub PR URL supplied by the user.
 5. Frontend calls `POST /investigations` through `api.analyzePullRequest()`.
-6. API immediately returns an investigation id and queued/running status.
-7. Analyze UI displays an eight-stage progress workflow:
-   - Connecting to GitHub
-   - Fetching pull request
-   - Reading changed files
-   - Mapping dependencies
-   - Recovering historical context
-   - Assessing architectural impact
-   - Identifying risks
-   - Checking verification
-8. On completion the frontend navigates to `/investigation/$id`.
-9. Investigation header shows repository, PR number/title, author, head -> base branch, additions/deletions, analysis duration, status, risk and GitHub link.
-10. Investigation has eight tabs:
-    - Overview
-    - What Changed
-    - Why
-    - Architecture
-    - Risk
-    - Verification
-    - Evidence
-    - Files
-11. A persistent right-side `Trace Intelligence` panel shows prioritized review actions and supports contextual questions.
-12. Evidence can be opened from conclusions, changes, risks, why-chain, architecture conclusions and questions.
-13. Files tab renders real diff hunks with line numbers and supports `Explain this change` navigation back to What Changed.
-14. Investigation history must include the completed run.
-15. Dashboard/repository metrics must reflect persisted investigations.
+6. API returns an investigation id and queued/running status.
+7. Analyze UI displays the eight-stage progress workflow.
+8. Realtime events drive progress; the frontend must not simulate analysis with a local timer or fixture.
+9. On completion the frontend navigates to `/investigation/$id`.
+10. Investigation history, dashboard metrics and repository metrics must reflect persisted backend data.
 
-## Overview contract
+## Investigation contract
 
-`GET /overview` supplies:
-
-- investigations `{ value, delta }`
-- highRisk `{ value, delta }`
-- verificationGaps `{ value, delta }`
-- avgAnalysis `{ value, delta }`
-- riskDistribution `{ low, medium, high, critical }`
-
-`GET /investigations` supplies recent investigation summaries. Overview renders up to six and navigates to `/investigation/$id`.
-
-## Investigation summary contract
-
-The frontend type is `InvestigationSummary`:
-
-- id
-- repository
-- repositoryId
-- pullRequest
-  - number
-  - title
-  - author
-  - openedAt
-  - headBranch
-  - baseBranch
-  - url
-  - additions
-  - deletions
-- risk
-  - level: low | medium | high | critical
-  - confidence: 0..1
-  - primaryConcern
-- status: verified | review | analyzing | failed | partial
-- filesChanged
-- servicesAffected
-- newDependencies
-- verificationChecks
-- verificationGaps
-- riskCount
-- analysisSeconds
-- analyzedAt
-
-The database may use its own normalized status values (`queued`, `fetching`, `analyzing`, `completed`, `partial`, `failed`), but the API must map those into the frontend's display status semantics.
-
-## Full investigation contract
-
-`GET /investigations/:id` must provide the full `Investigation` object, not merely database metadata.
-
-It contains:
+`GET /investigations/:id` provides the full `Investigation` object:
 
 - all summary fields
 - `headline`
@@ -123,111 +53,84 @@ It contains:
 - `files[]`
 - `priorities[]`
 
-The frontend currently performs one primary investigation query and expects the nested data to be directly usable by all eight tabs.
+The frontend expects the nested data to be directly usable by the investigation tabs.
 
-## Overview tab
+## Investigation summary
 
-Displays:
-
-- headline
-- executive summary bullets
-- files changed
-- services affected
-- new dependencies
-- verification gaps
-- primary concern
-- risk level
-- risk confidence
-- architecture AI conclusion
-
-The conclusion must contain:
-
-- title
-- confidence
-- statement
-- evidenceIds
-- unknowns
-
-## What Changed tab
-
-Each `Change` contains:
+`InvestigationSummary` contains:
 
 - id
-- kind: added | modified | removed
-- title
-- detail
-- components[]
-- files[]
-- evidenceIds[]
+- repository
+- repositoryId
+- pullRequest: number, title, author, openedAt, headBranch, baseBranch, url, additions, deletions
+- risk: level, confidence, primaryConcern
+- status: verified | review | analyzing | failed | partial
+- filesChanged
+- servicesAffected
+- newDependencies
+- verificationChecks
+- verificationGaps
+- riskCount
+- analysisSeconds
+- analyzedAt
 
-Each evidence id is clickable and opens the evidence drawer.
+The API maps persistence statuses into these frontend display statuses.
 
-## Why tab
+## Investigation tabs
 
-`WhyAnalysis` contains:
+The workspace contains:
 
-- question
-- chain[]
-- interpretation
-- confidence
-- evidenceStrength
-- unknowns[]
+- Overview
+- What Changed
+- Why
+- Architecture
+- Risk
+- Verification
+- Evidence
+- Files
 
-Each reasoning-chain item contains:
+Evidence IDs are the join mechanism across changes, conclusions, risks, why-chain and question answers.
+
+## Evidence requirements
+
+Evidence is a first-class object with:
 
 - id
-- label
+- kind: pull_request | issue | commit | code | docs | test
 - ref
-- detail
+- title
+- strength: direct | strong | moderate | weak
+- source
+- author
 - date
-- optional evidenceId
+- excerpt
+- optional file
+- optional lines
+- optional url
 
-The backend must not fabricate intent. If historical evidence is insufficient, the `unknowns` field and confidence must communicate that.
+The backend must return evidence derived from the analyzed repository/PR context. The frontend must never invent evidence, file locations, line numbers, risks, verification results or AI conclusions.
 
-## Architecture tab
+## Files / diff model
 
-`Architecture` contains:
+`ChangedFile` contains:
 
-### nodes
-Each node:
+- path
+- status: added | modified | deleted
+- additions
+- deletions
+- language
+- summary
+- hunks[]
 
-- id
-- label
-- kind: service | datastore | api | worker | external
-- changed
-- column
-- row
-- references
-- changedFunctions
-- incoming
-- outgoing
-- note
+Diff lines contain type, oldLine, newLine and content. Real GitHub patch-derived data is required for every investigation.
 
-### edges
-Each edge:
+## Architecture
 
-- id
-- from
-- to
-- optional label
-- kind: read | write | invalidate | call
-- added
+`Architecture` contains stable nodes and edges plus blast-radius entries and an AI conclusion. The backend calculates deterministic `column` and `row` values for visualization layout; the frontend does not infer architecture from arbitrary mock structures.
 
-The frontend uses `column` and `row` for deterministic visualization layout. Backend should calculate stable values; it should not require the frontend to infer layout.
+## Risk
 
-### blastRadius
-Each entry:
-
-- component
-- level: direct | indirect | potential
-- reason
-
-### conclusion
-Standard AI conclusion shape described above.
-
-## Risk tab
-
-Each `Risk` contains:
+Each risk contains:
 
 - id
 - title
@@ -240,182 +143,49 @@ Each `Risk` contains:
 - mitigation
 - confidence
 
-The UI expects risks to be evidence-linked and location-aware. File/line references must never be invented.
+File/line references must come from analyzed repository evidence.
 
-Risk levels are low, medium, high and critical.
+## Verification
 
-## Verification tab
+`Verification` contains checks, recommended tests and a conclusion.
 
-`Verification` contains:
+Each check has status `passed | failed | missing | partial`. The backend must never claim a test passed unless actual evidence was retrieved.
 
-- checks[]
-- recommended[]
-- conclusion
+## Trace Intelligence
 
-Each check:
-
-- id
-- name
-- status: passed | failed | missing | partial
-- detail
-- source
-- optional durationMs
-
-Each recommended test:
-
-- id
-- title
-- rationale
-- steps[]
-- scenario
-
-The UI copies the scenario as a test specification. It must be grounded in the identified risk/verification gap.
-
-The backend must never claim a test passed unless actual evidence was retrieved.
-
-## Evidence model
-
-`Evidence` is a first-class UI object.
-
-Fields:
-
-- id
-- kind: pull_request | issue | commit | code | docs | test
-- ref
-- title
-- strength: direct | strong | moderate | weak
-- source
-- author
-- date
-- excerpt
-- optional file
-- optional lines `[start,end]`
-- optional url
-
-Evidence is displayed in cards and an evidence drawer. The drawer shows source, kind, author, date, file/line location, relevance strength, excerpt and a GitHub source link.
-
-Evidence IDs are the join mechanism used throughout changes, conclusions, risks, why-chain and question answers.
-
-## Files / diff model
-
-Each `ChangedFile` contains:
-
-- path
-- status: added | modified | deleted
-- additions
-- deletions
-- language
-- summary
-- hunks[]
-
-Each hunk:
-
-- header
-- lines[]
-
-Each diff line:
-
-- type: context | add | del
-- oldLine nullable
-- newLine nullable
-- content
-
-The backend should return real GitHub patch-derived data for real mode. For demo mode it must use the deterministic payment-status fixture.
-
-## Trace Intelligence panel
-
-The right-side intelligence panel is contextual, not a generic chatbot.
-
-It renders `priorities[]` first. Each priority has:
-
-- title
-- note
-- tab
-
-Clicking a priority changes the investigation tab.
-
-Question suggestions currently include:
-
-- Why is this medium risk?
-- What changed architecturally?
-- Show me the strongest evidence.
-- What would you test first?
-- What assumptions did this PR introduce?
-
-Questions are sent to:
+The right-side intelligence panel is contextual, not a generic chatbot. It renders backend-provided `priorities[]` and sends questions to:
 
 `POST /investigations/:id/questions`
 
-Request:
-
-`{ question: string }`
-
-Response:
-
-- question
-- answer
-- confidence
-- citations[] `{ evidenceId, label }`
-- unknowns[]
-
-Answers must cite actual evidence IDs so the frontend can open the corresponding evidence drawer.
+Question answers must cite actual evidence IDs and expose unknowns where evidence is insufficient.
 
 ## Repository workflow
 
-`GET /repositories` powers the repository cards and workspace sidebar.
+`GET /repositories` powers repository cards, the workspace sidebar and repository selection.
 
-Repository fields required by UI:
+`GET /repositories/:id` provides repository intelligence plus recent investigations.
 
-- id
-- name
-- fullName
-- url
-- defaultBranch
-- language
-- investigations
-- highRiskChanges
-- verificationGaps
-- riskDistribution
-- frequentServices[] `{ name, touches }`
-- commonRiskCategories[] `{ name, count }`
-- lastAnalyzedAt
-
-`GET /repositories/:id` provides the same repository intelligence plus recent investigations.
-
-Repository detail filters investigations by `repositoryId` and links each run to the investigation workspace.
+All repository metrics are backend-derived. The frontend must not seed repositories or investigation counts locally.
 
 ## Settings workflow
 
-Current settings UI has local state for:
-
-- analysis depth: fast | standard | deep
-- risk threshold: 0..100
-- high/critical notifications on/off
-
-It also shows a GitHub connection state and API access display. These settings are currently UI-only and are not yet part of the critical investigation API contract. Backend should not invent persistent behavior for them without explicit integration work.
-
-## Current navigation/data dependencies
-
-AppShell currently reads repository data for:
-
-- workspace sidebar
-- top repository selector
-- GitHub connected indicator
-
-The backend must eventually replace this hard-coded repository source with `GET /repositories` while preserving the same UX.
+Settings are loaded from `GET /settings` and persisted through `PUT /settings`. The frontend must not initialize user-visible settings from fabricated product values. Loading state is distinct from a real backend value.
 
 ## Frontend data-loading behavior
 
-The app uses TanStack React Query with route loaders.
-
-Important query keys:
+The app uses TanStack React Query with route loaders. Important query keys include:
 
 - `overview-metrics`
 - `investigations`
 - `repository/:id`
 - `investigation/:id`
+- `repositories`
+- `github-connection`
+- `current-user`
+- `settings`
+- `notifications`
 
-A backend change must preserve stable response shapes so React Query loaders can hydrate the screens without UI-specific transformations.
+Shared query keys must keep a consistent response shape across components. Components should consume the API/React Query layer rather than maintaining duplicated server state.
 
 ## Required API surface
 
@@ -429,7 +199,7 @@ Critical:
 - `GET /repositories`
 - `GET /repositories/:id`
 
-Existing service abstraction also defines:
+Investigation section endpoints:
 
 - `GET /investigations/:id/changes`
 - `GET /investigations/:id/architecture`
@@ -439,39 +209,25 @@ Existing service abstraction also defines:
 - `GET /investigations/:id/files`
 - `GET /investigations/:id/events`
 
-These section endpoints should return the exact corresponding frontend object shapes.
+## Non-negotiable data rule
 
-## Demo fixture contract
+There is no demo mode, fixture mode or frontend mock-data path in the application.
 
-The primary demo is:
+All user-visible product data must originate from the authenticated backend, the user's GitHub data, persisted investigation records, or the configured AI/semantic-analysis services. Empty states are valid application states and must be rendered instead of substituting sample data.
 
-- repository: `acme/payments-api`
-- PR: `#482`
-- title: `Add Redis caching to payment status API`
-- 8 changed files
-- 149 additions
-- 12 deletions
-- 3 affected services
-- 2 new dependencies
-- medium overall risk
-- 82% reasoning confidence
-- primary concern: stale payment status after asynchronous refund updates
-
-Core evidence IDs are `ev_1` through `ev_9` and must remain stable in demo mode because the frontend uses them as cross-section references.
-
-The demo should reproduce the existing `src/data/investigations.ts` model, not generate a new approximation.
+Do not add `mockApi`, fixture datasets, hard-coded repository metrics, fabricated investigations, deterministic demo PRs, fake evidence IDs, fake analysis progress, or default user settings.
 
 ## Backend implementation implications
 
-1. Normalize persistence, but expose the frontend-shaped DTO at the API boundary.
-2. Keep evidence IDs stable within an investigation.
-3. Preserve file/line references for code evidence and risk locations.
+1. Normalize persistence but expose frontend-shaped DTOs at the API boundary.
+2. Keep evidence IDs stable within each persisted investigation.
+3. Preserve real file/line references.
 4. Keep architecture node/edge IDs stable within an investigation.
-5. Treat `unknowns` as a first-class output, not an error.
-6. Map backend analysis lifecycle to frontend status values.
-7. Progress events should drive the eight visible analysis stages rather than a frontend-only timer.
-8. A completed investigation must be navigable immediately and independently of the analysis process.
-9. Real mode must fetch GitHub data; demo mode must be deterministic.
-10. Do not expose raw GitHub tokens or OpenAI credentials.
+5. Treat `unknowns` as a first-class output.
+6. Map backend lifecycle states to frontend statuses.
+7. Progress events must drive the visible analysis stages.
+8. Completed investigations must remain independently retrievable.
+9. Real GitHub data must be used for every analysis.
+10. Do not expose raw GitHub tokens or AI credentials.
 11. Do not make the frontend reconstruct AI reasoning from raw database rows.
-12. Do not turn the Intelligence panel into an unrestricted repository chatbot; answers must be scoped to the investigation evidence.
+12. Keep Intelligence answers scoped to the current investigation evidence.
