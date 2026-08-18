@@ -38,13 +38,21 @@ function OverviewPage() {
   const navigate = useNavigate();
   const displayName = currentUser.user.name || currentUser.user.login || currentUser.user.email || "there";
 
+  const connectGitHub = () => {
+    if (github.connected) {
+      navigate({ to: "/settings" });
+      return;
+    }
+    api.loginWithGitHub();
+  };
+
   return <AppShell>
     <div className="border-b border-border px-4 py-6 md:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div><h1 className="text-xl font-semibold tracking-tight">Welcome, {displayName}</h1><p className="mt-1 text-sm text-muted-foreground">Understand what changed before you approve it.</p></div>
         <div className="flex flex-wrap gap-2">
           <Link to="/analyze" className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-ring"><Sparkles className="size-4" aria-hidden />Analyze a Pull Request</Link>
-          <button type="button" onClick={() => navigate({ to: "/settings" })} title={github.connected ? `Connected to ${github.account ?? "GitHub"}` : "Configure GitHub connection"} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring"><Github className="size-4" aria-hidden />{github.connected ? "GitHub connected" : "Connect GitHub"}</button>
+          <button type="button" onClick={connectGitHub} title={github.connected ? `Connected to ${github.account ?? "GitHub"}` : "Connect your GitHub account"} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring"><Github className="size-4" aria-hidden />{github.connected ? "GitHub connected" : "Connect GitHub"}</button>
         </div>
       </div>
     </div>
