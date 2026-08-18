@@ -92,24 +92,33 @@ export function rateLimit(options: {
         : scope === 'user_ip'
           ? `user:${userId || 'anonymous'}:ip:${ip}`
           : `user:${userId || 'anonymous'}`;
-      const result = await consumeRateLimit(`rl:${options.name}:${identity}`, options.limit, options.windowSeconds);
+
+      // Analysis is the expensive operation, but a 5/hour limit is too
+      // restrictive during normal product testing. Keep it configurable and
+      // default to 10/hour; other rate-limited endpoints keep their explicit limits.
+      const effectiveLimit = options.name === 'analysis-user'
+        ? Number(process.env.ANALYSIS_RATE_LIMIT || 10)
+        : options.limit;
+      const effectiveWindow = options.name === 'analysis-user'
+        ? Number(process.env.ANALYSIS_RATE_WINDOW_SECONDS || options.windowSeconds)
+        : options.windowSeconds;
+
+      const result = await consumeRateLimit(`rl:${options.name}:${identity}`, effectiveLimit, effectiveWindow);
       res.setHeader('RateLimit-Limit', String(result.limit));
       res.setHeader('RateLimit-Remaining', String(result.remaining));
       res.setHeader('RateLimit-Reset', String(Math.ceil(result.resetAt / 1000)));
       if (!result.allowed) {
-        
         res.setHeader(
-  'Retry-After',
-  String(
-    Math.max(
-      1,
-      Math.ceil(
-        (result.resetAt - Date.now()) / 1000,
-      ),
-    ),
-  ),
-);
-
+          'Retry-After',
+          String(
+            Math.max(
+              1,
+              Math.ceil(
+                (result.resetAt - Date.now()) / 1000,
+              ),
+            ),
+          ),
+        );
         return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } });
       }
       return next();
