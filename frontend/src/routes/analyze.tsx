@@ -217,7 +217,7 @@ function AnalyzePage() {
               </button>
             </div>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Trace reads the diff, linked discussion, git history and checks. Nothing is written back to the repository.
+              Public GitHub PRs can be analyzed directly. Trace uses read-only GitHub access and does not write anything back to the repository. Connect GitHub only when you need private repository access or a higher API rate limit.
             </p>
           </section>
         )}
@@ -296,7 +296,7 @@ function AnalyzePage() {
               <span>How Trace analyzes a PR</span>
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              It fetches the pull request, changed files, history, discussion and checks, then uses the configured OpenRouter model to produce evidence-linked change intelligence.
+              Trace fetches the pull request, changed files, history, discussion and checks, then uses the configured OpenRouter model to produce evidence-linked change intelligence. Public repositories are supported without connecting GitHub.
             </p>
             <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
               <Github className="size-3.5" />
