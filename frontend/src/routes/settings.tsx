@@ -71,7 +71,11 @@ function SettingsPage() {
           <div className="flex items-center gap-3"><Github className="size-4 text-muted-foreground" aria-hidden /><div><p className="mono text-xs">{githubQuery.data?.account || 'GitHub'}</p><p className="text-[11px] text-muted-foreground">{githubQuery.data?.repositoryCount ?? 0} repositories · server-side read access</p></div></div>
           {githubQuery.data?.connected ? <span className="inline-flex items-center gap-1.5 rounded border border-risk-low/30 bg-risk-low-soft px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-risk-low"><Check className="size-3" aria-hidden />Connected</span> : <span className="rounded border border-risk-high/30 bg-risk-high-soft px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-risk-high">Not connected</span>}
         </div>
-        <a href={githubQuery.data?.manageUrl || 'https://github.com/settings/tokens'} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring">Manage access <ExternalLink className="size-3" aria-hidden /></a>
+        {githubQuery.data?.connected ? (
+          <a href={githubQuery.data.manageUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring">Manage access <ExternalLink className="size-3" aria-hidden /></a>
+        ) : (
+          <button type="button" onClick={() => api.loginWithGitHub()} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-ring"><Github className="size-3.5" aria-hidden />Connect GitHub</button>
+        )}
       </section>
 
       <section className="panel p-5">
