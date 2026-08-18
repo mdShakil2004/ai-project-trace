@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Check, Github, Loader2, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/trace/Primitives";
-import { api } from "@/services/api";
+import { api, TraceApiError } from "@/services/api";
 import type { AnalysisEvent } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +24,14 @@ export const Route = createFileRoute("/analyze")({
 
 type Phase = "idle" | "running" | "error";
 
+function upsertEvent(events: AnalysisEvent[], next: AnalysisEvent) {
+  const index = events.findIndex((event) => event.id === next.id);
+  if (index === -1) return [...events, next];
+  const copy = events.slice();
+  copy[index] = { ...copy[index], ...next };
+  return copy;
+}
+
 function AnalyzePage() {
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
@@ -36,7 +44,7 @@ function AnalyzePage() {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (phase !== "running" || !investigationId || !realtimeToken) return;
+    if (phase !== "running" || !investigationId) return;
 
     let cancelled = false;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -54,6 +62,10 @@ function AnalyzePage() {
       }
     };
 
+    const schedulePoll = () => {
+      if (!cancelled) fallbackTimer = setTimeout(poll, 1500);
+    };
+
     const poll = async () => {
       try {
         const next = await api.getEvents(investigationId);
@@ -63,13 +75,14 @@ function AnalyzePage() {
           await api.getInvestigation(investigationId);
           if (!cancelled) await finish();
         } catch (err) {
-          const message = err instanceof Error ? err.message : "";
-          if (message && message !== "Investigation is still analyzing" && !cancelled) {
-            setError(message);
-            setPhase("error");
+          if (err instanceof TraceApiError && err.code === "ANALYSIS_IN_PROGRESS") {
+            schedulePoll();
             return;
           }
-          fallbackTimer = setTimeout(poll, 1000);
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : "Analysis failed.");
+            setPhase("error");
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -80,17 +93,29 @@ function AnalyzePage() {
     };
 
     const startRealtime = () => {
+      if (!realtimeToken) {
+        usingFallback = true;
+        void poll();
+        return;
+      }
+
       unsubscribe = api.subscribeInvestigation(investigationId, realtimeToken, {
         onEvents: (next) => {
           if (!cancelled) setEvents(next);
         },
+        onStage: (stage) => {
+          if (!cancelled) setEvents((current) => upsertEvent(current, stage));
+        },
         onComplete: () => {
           void finish();
         },
-        onError: () => {
+        onError: (message) => {
           if (!usingFallback && !cancelled) {
             usingFallback = true;
             void poll();
+          }
+          if (message === "Received an invalid realtime event." && !cancelled) {
+            setError(message);
           }
         },
       });
