@@ -24,6 +24,17 @@ export const Route = createFileRoute("/analyze")({
 
 type Phase = "idle" | "running" | "error";
 
+function isGitHubPullRequestUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "github.com") return false;
+    const parts = url.pathname.split("/").filter(Boolean);
+    return parts.length === 4 && parts[2] === "pull" && /^\d+$/.test(parts[3]);
+  } catch {
+    return false;
+  }
+}
+
 function upsertEvent(events: AnalysisEvent[], next: AnalysisEvent) {
   const index = events.findIndex((event) => event.id === next.id);
   if (index === -1) return [...events, next];
@@ -151,6 +162,12 @@ function AnalyzePage() {
     if (!value) {
       setPhase("error");
       setError("Enter a GitHub pull request URL.");
+      return;
+    }
+
+    if (!isGitHubPullRequestUrl(value)) {
+      setPhase("error");
+      setError("Enter a valid GitHub pull request URL, for example https://github.com/owner/repo/pull/123.");
       return;
     }
 
