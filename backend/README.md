@@ -35,6 +35,18 @@ VITE_TRACE_API_BASE=http://localhost:8787/api/v1
 
 Never put `DATABASE_URL`, `OPENROUTER_API_KEY`, GitHub client secrets, GitHub access tokens, `GITHUB_TOKEN_ENCRYPTION_KEY`, or `REALTIME_SECRET` in Vite environment variables.
 
+### GitHub encryption key
+
+`GITHUB_TOKEN_ENCRYPTION_KEY` is required for the GitHub OAuth connection flow. It must be a **base64-encoded 32-byte key**. The literal placeholder `base64-encoded-32-byte-key` is invalid and will cause OAuth to fail after GitHub redirects back to the callback.
+
+Generate a valid local key with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Put the generated value in `backend/.env` and restart the backend. Keep the same key across restarts; changing it makes previously stored GitHub credentials undecryptable.
+
 ## GitHub OAuth
 
 Create a GitHub OAuth App and configure its callback as:
