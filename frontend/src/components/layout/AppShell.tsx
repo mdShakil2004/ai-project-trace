@@ -5,7 +5,7 @@ import { Bell, ChevronDown, FolderGit2, Github, LayoutDashboard, Menu, Search, S
 import { CommandPalette } from './CommandPalette';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { api } from '@/services/api';
+import { api, type AuthUser } from '@/services/api';
 import { cn } from '@/lib/utils';
 
 const NAV = [
@@ -15,35 +15,95 @@ const NAV = [
   { to: '/repositories', label: 'Repositories', icon: FolderGit2 },
 ];
 
-function TraceMark() { return <Link to="/" className="flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-ring"><span className="flex size-7 items-center justify-center rounded-md border border-border-strong bg-surface-2"><svg viewBox="0 0 16 16" className="size-4" aria-hidden><path d="M2 12 L6 6 L9 9 L14 3" fill="none" stroke="var(--primary)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="9" r="1.6" fill="var(--intel)" /></svg></span><span className="text-sm font-semibold tracking-tight">Trace</span></Link>; }
+function TraceMark() {
+  return (
+    <Link to="/" className="flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-ring">
+      <span className="flex size-7 items-center justify-center rounded-md border border-border-strong bg-surface-2">
+        <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+          <path d="M2 12 L6 6 L9 9 L14 3" fill="none" stroke="var(--primary)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="9" cy="9" r="1.6" fill="var(--intel)" />
+        </svg>
+      </span>
+      <span className="text-sm font-semibold tracking-tight">Trace</span>
+    </Link>
+  );
+}
+
+function initials(user: AuthUser | undefined) {
+  const value = user?.name?.trim() || user?.login?.trim() || user?.email?.trim();
+  if (!value) return "?";
+  return value
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function displayName(user: AuthUser | undefined) {
+  return user?.name || user?.login || user?.email || "Trace user";
+}
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { data: repositories = [] } = useQuery({ queryKey: ['repositories'], queryFn: api.listRepositories, staleTime: 30_000 });
   const { data: github } = useQuery({ queryKey: ['github-connection'], queryFn: api.getGitHubConnection, staleTime: 30_000 });
-  return <nav className="flex h-full flex-col gap-1 p-3" aria-label="Primary">
-    <div className="px-2 py-2"><TraceMark /><p className="mt-1 pl-9 text-[10px] uppercase tracking-wider text-muted-foreground">Change intelligence</p></div>
-    <ul className="mt-2 space-y-0.5">{NAV.map((item) => { const active=item.exact?pathname===item.to:pathname.startsWith(item.to); const Icon=item.icon; return <li key={item.to}><Link to={item.to} onClick={onNavigate} aria-current={active?'page':undefined} className={cn('flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring',active?'bg-sidebar-accent text-sidebar-accent-foreground':'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground')}><Icon className="size-4" aria-hidden />{item.label}</Link></li>; })}</ul>
-    <div className="my-3 border-t border-sidebar-border" /><p className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Workspace</p>
-    <ul className="mt-1 space-y-0.5">{repositories.slice(0,3).map((repo)=><li key={repo.id}><Link to="/repositories/$id" params={{id:repo.id}} onClick={onNavigate} className="mono flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"><span className="truncate">{repo.name}</span><span className="tabular-nums text-[10px]">{repo.investigations}</span></Link></li>)}</ul>
-    <div className="mt-auto space-y-2"><div className="border-t border-sidebar-border pt-3"><Link to="/settings" onClick={onNavigate} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"><Settings className="size-4" aria-hidden />Settings</Link></div><div className="flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2"><Github className="size-4 text-muted-foreground" aria-hidden /><div className="min-w-0 flex-1"><p className="text-xs">GitHub {github?.connected ? 'connected' : 'not connected'}</p><p className="mono truncate text-[10px] text-muted-foreground">{github?.account || 'server connection'}</p></div><span className={cn('size-1.5 rounded-full', github?.connected ? 'bg-risk-low' : 'bg-risk-high')} aria-hidden /><span className="sr-only">{github?.connected ? 'Connection healthy' : 'GitHub is not connected'}</span></div><div className="flex items-center gap-2 px-1 py-1"><span className="mono flex size-7 items-center justify-center rounded-full bg-intel-soft text-[11px] text-intel">SK</span><div className="min-w-0"><p className="truncate text-xs">Shakil</p><p className="truncate text-[10px] text-muted-foreground">Platform engineering</p></div></div></div>
-  </nav>;
+  const { data: user } = useQuery({ queryKey: ['current-user'], queryFn: async () => (await api.getCurrentUser()).user, staleTime: 5 * 60_000 });
+
+  return (
+    <nav className="flex h-full flex-col gap-1 p-3" aria-label="Primary">
+      <div className="px-2 py-2"><TraceMark /><p className="mt-1 pl-9 text-[10px] uppercase tracking-wider text-muted-foreground">Change intelligence</p></div>
+      <ul className="mt-2 space-y-0.5">
+        {NAV.map((item) => {
+          const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+          const Icon = item.icon;
+          return <li key={item.to}><Link to={item.to} onClick={onNavigate} aria-current={active ? 'page' : undefined} className={cn('flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring', active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground')}><Icon className="size-4" aria-hidden />{item.label}</Link></li>;
+        })}
+      </ul>
+      <div className="my-3 border-t border-sidebar-border" /><p className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Workspace</p>
+      <ul className="mt-1 space-y-0.5">
+        {repositories.slice(0, 3).map((repo) => <li key={repo.id}><Link to="/repositories/$id" params={{ id: repo.id }} onClick={onNavigate} className="mono flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"><span className="truncate">{repo.name}</span><span className="tabular-nums text-[10px]">{repo.investigations}</span></Link></li>)}
+      </ul>
+      <div className="mt-auto space-y-2">
+        <div className="border-t border-sidebar-border pt-3"><Link to="/settings" onClick={onNavigate} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"><Settings className="size-4" aria-hidden />Settings</Link></div>
+        <div className="flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2"><Github className="size-4 text-muted-foreground" aria-hidden /><div className="min-w-0 flex-1"><p className="text-xs">GitHub {github?.connected ? 'connected' : 'not connected'}</p><p className="mono truncate text-[10px] text-muted-foreground">{github?.account || 'Not configured'}</p></div><span className={cn('size-1.5 rounded-full', github?.connected ? 'bg-risk-low' : 'bg-risk-high')} aria-hidden /><span className="sr-only">{github?.connected ? 'Connection healthy' : 'GitHub is not connected'}</span></div>
+        <div className="flex items-center gap-2 px-1 py-1"><span className="mono flex size-7 items-center justify-center rounded-full bg-intel-soft text-[11px] text-intel">{initials(user)}</span><div className="min-w-0"><p className="truncate text-xs">{displayName(user)}</p><p className="truncate text-[10px] text-muted-foreground">{user?.githubId ? 'GitHub connected account' : 'Trace account'}</p></div></div>
+      </div>
+    </nav>
+  );
 }
 
 function TopBar({ onSearch }: { onSearch: () => void }) {
   const { data: repositories = [] } = useQuery({ queryKey: ['repositories'], queryFn: api.listRepositories, staleTime: 30_000 });
   const queryClient = useQueryClient();
   const { data: notifications = [], isLoading: notificationsLoading } = useQuery({ queryKey: ['notifications'], queryFn: api.listNotifications, staleTime: 15_000, refetchInterval: 30_000 });
-  const [repo, setRepo] = useState<any>(null); const [mobileOpen,setMobileOpen]=useState(false);
-  const selected=repo || repositories[0]; const unread = notifications.filter(n => !n.read_at).length;
-  const openNotification = async (notification: typeof notifications[number]) => {
+  const { data: github } = useQuery({ queryKey: ['github-connection'], queryFn: api.getGitHubConnection, staleTime: 30_000 });
+  const [repo, setRepo] = useState<(typeof repositories)[number] | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const selected = repo || repositories[0];
+  const unread = notifications.filter((n) => !n.read_at).length;
+
+  const openNotification = async (notification: (typeof notifications)[number]) => {
     if (!notification.read_at) {
       await api.markNotificationRead(notification.id);
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
-    if (notification.investigation_id) window.location.href = `/investigation/${notification.investigation_id}`;
+    if (notification.investigation_id) window.location.assign(`/investigation/${notification.investigation_id}`);
   };
-  return <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur md:px-4"><Sheet open={mobileOpen} onOpenChange={setMobileOpen}><SheetTrigger className="rounded-md p-2 text-muted-foreground hover:bg-surface-2 lg:hidden" aria-label="Open navigation"><Menu className="size-4" aria-hidden /></SheetTrigger><SheetContent side="left" className="w-72 bg-sidebar p-0"><SheetTitle className="sr-only">Navigation</SheetTitle><SidebarNav onNavigate={()=>setMobileOpen(false)} /></SheetContent></Sheet><div className="lg:hidden"><TraceMark /></div><button type="button" onClick={onSearch} className="ml-auto flex h-8 w-40 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-xs text-muted-foreground sm:w-72 lg:ml-0"><Search className="size-3.5" aria-hidden /><span className="truncate">Search Trace</span><kbd className="mono ml-auto hidden rounded border border-border px-1 text-[10px] sm:block">⌘K</kbd></button><div className="ml-auto flex items-center gap-1.5"><DropdownMenu>{selected&&<DropdownMenuTrigger className="mono hidden h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs md:flex"><FolderGit2 className="size-3.5 text-muted-foreground" aria-hidden />{selected.fullName}<ChevronDown className="size-3 text-muted-foreground" aria-hidden /></DropdownMenuTrigger>}<DropdownMenuContent align="end" className="w-64"><DropdownMenuLabel>Repository</DropdownMenuLabel><DropdownMenuSeparator />{repositories.map(r=><DropdownMenuItem key={r.id} onSelect={()=>setRepo(r)} className="mono text-xs">{r.fullName}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu><span className="hidden items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[11px] text-muted-foreground sm:flex"><Github className="size-3.5" aria-hidden /><span className="size-1.5 rounded-full bg-risk-low" aria-hidden />Connected</span><DropdownMenu><DropdownMenuTrigger className="relative rounded-md p-2 text-muted-foreground hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring" aria-label={unread ? `${unread} unread notifications` : 'Notifications'}><Bell className="size-4" aria-hidden />{unread > 0 && <span className="absolute right-1 top-1 flex min-w-3.5 items-center justify-center rounded-full bg-risk-high px-1 text-[8px] text-white">{unread > 9 ? '9+' : unread}</span>}</DropdownMenuTrigger><DropdownMenuContent align="end" className="w-96"><DropdownMenuLabel>Notifications</DropdownMenuLabel><DropdownMenuSeparator />{notificationsLoading ? <div className="px-3 py-4 text-xs text-muted-foreground">Loading notifications…</div> : notifications.length === 0 ? <div className="px-3 py-4 text-xs text-muted-foreground">No notifications.</div> : notifications.slice(0,8).map(n=><DropdownMenuItem key={n.id} onSelect={()=>void openNotification(n)} className={cn('items-start gap-2 py-3', !n.read_at && 'bg-surface-2/60')}><span className={cn('mt-1.5 size-1.5 shrink-0 rounded-full', n.type === 'risk' ? 'bg-risk-high' : 'bg-intel')} /><span className="min-w-0"><span className="block text-xs font-medium">{n.title}</span><span className="mt-0.5 block text-[11px] text-muted-foreground">{n.message}</span><span className="mt-1 block text-[9px] text-muted-foreground">{new Date(n.created_at).toLocaleString()}</span></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu><span className="mono flex size-7 items-center justify-center rounded-full bg-intel-soft text-[11px] text-intel">SK</span></div></header>;
+
+  return <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur md:px-4">
+    <Sheet open={mobileOpen} onOpenChange={setMobileOpen}><SheetTrigger className="rounded-md p-2 text-muted-foreground hover:bg-surface-2 lg:hidden" aria-label="Open navigation"><Menu className="size-4" aria-hidden /></SheetTrigger><SheetContent side="left" className="w-72 bg-sidebar p-0"><SheetTitle className="sr-only">Navigation</SheetTitle><SidebarNav onNavigate={() => setMobileOpen(false)} /></SheetContent></Sheet>
+    <div className="lg:hidden"><TraceMark /></div>
+    <button type="button" onClick={onSearch} className="ml-auto flex h-8 w-40 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-xs text-muted-foreground sm:w-72 lg:ml-0"><Search className="size-3.5" aria-hidden /><span className="truncate">Search Trace</span><kbd className="mono ml-auto hidden rounded border border-border px-1 text-[10px] sm:block">⌘K</kbd></button>
+    <div className="ml-auto flex items-center gap-1.5">
+      <DropdownMenu>{selected && <DropdownMenuTrigger className="mono hidden h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs md:flex"><FolderGit2 className="size-3.5 text-muted-foreground" aria-hidden />{selected.fullName}<ChevronDown className="size-3 text-muted-foreground" aria-hidden /></DropdownMenuTrigger>}<DropdownMenuContent align="end" className="w-64"><DropdownMenuLabel>Repository</DropdownMenuLabel><DropdownMenuSeparator />{repositories.map((r) => <DropdownMenuItem key={r.id} onSelect={() => setRepo(r)} className="mono text-xs">{r.fullName}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+      <span className="hidden items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[11px] text-muted-foreground sm:flex"><Github className="size-3.5" aria-hidden /><span className={cn('size-1.5 rounded-full', github?.connected ? 'bg-risk-low' : 'bg-risk-high')} aria-hidden />{github?.connected ? 'Connected' : 'Not connected'}</span>
+      <DropdownMenu><DropdownMenuTrigger className="relative rounded-md p-2 text-muted-foreground hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring" aria-label={unread ? `${unread} unread notifications` : 'Notifications'}><Bell className="size-4" aria-hidden />{unread > 0 && <span className="absolute right-1 top-1 flex min-w-3.5 items-center justify-center rounded-full bg-risk-high px-1 text-[8px] text-white">{unread > 9 ? '9+' : unread}</span>}</DropdownMenuTrigger><DropdownMenuContent align="end" className="w-96"><DropdownMenuLabel>Notifications</DropdownMenuLabel><DropdownMenuSeparator />{notificationsLoading ? <div className="px-3 py-4 text-xs text-muted-foreground">Loading notifications…</div> : notifications.length === 0 ? <div className="px-3 py-4 text-xs text-muted-foreground">No notifications.</div> : notifications.slice(0, 8).map((n) => <DropdownMenuItem key={n.id} onSelect={() => void openNotification(n)} className={cn('items-start gap-2 py-3', !n.read_at && 'bg-surface-2/60')}><span className={cn('mt-1.5 size-1.5 shrink-0 rounded-full', n.type === 'risk' ? 'bg-risk-high' : 'bg-intel')} /><span className="min-w-0"><span className="block text-xs font-medium">{n.title}</span><span className="mt-0.5 block text-[11px] text-muted-foreground">{n.message}</span><span className="mt-1 block text-[9px] text-muted-foreground">{new Date(n.created_at).toLocaleString()}</span></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+      <span className="mono flex size-7 items-center justify-center rounded-full bg-intel-soft text-[11px] text-intel">{initials(user)}</span>
+    </div>
+  </header>;
 }
 
-export function AppShell({ children }: { children: ReactNode }) { const [paletteOpen,setPaletteOpen]=useState(false); return <div className="flex min-h-screen bg-background"><aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-sidebar-border bg-sidebar lg:block"><SidebarNav /></aside><div className="flex min-w-0 flex-1 flex-col"><TopBar onSearch={()=>setPaletteOpen(true)} /><main className="min-w-0 flex-1">{children}</main></div><CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /></div>; }
+export function AppShell({ children }: { children: ReactNode }) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  return <div className="flex min-h-screen bg-background"><aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-sidebar-border bg-sidebar lg:block"><SidebarNav /></aside><div className="flex min-w-0 flex-1 flex-col"><TopBar onSearch={() => setPaletteOpen(true)} /><main className="min-w-0 flex-1">{children}</main></div><CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /></div>;
+}
